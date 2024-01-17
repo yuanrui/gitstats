@@ -22,7 +22,7 @@ from multiprocessing import Pool
 
 os.environ['LC_ALL'] = 'C'  # LC_ALL=C 是为了去除所有本地化的设置，让命令能正确执行
 
-GNUPLOT_COMMON = 'set terminal png transparent size 640,240\nset size 1.0,1.0\n'  # Gnuplot是一个命令行的交互式绘图工具
+GNUPLOT_COMMON = 'set terminal png transparent size 640,240\nset terminal png font "F:/Work_Stat/gitstats/Song.ttf"\nset size 1.0,1.0\n'  # Gnuplot是一个命令行的交互式绘图工具
 ON_LINUX = (platform.system() == 'Linux')
 WEEKDAYS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
 
@@ -47,7 +47,7 @@ conf = {  # 配置文件
     'linear_linestats': 1,
     'project_name': '',
     'processes': 8,
-    'start_date': ''
+    'start_date': '2023/10/1'
 }
 
 
@@ -177,6 +177,7 @@ class DataCollector:
         self.author_of_year = {}  # year -> author -> commits
         self.commits_by_month = {}  # month -> commits
         self.commits_by_year = {}  # year -> commits
+        self.lines_added_by_day = {}  # day -> lines added
         self.lines_added_by_month = {}  # month -> lines added
         self.lines_added_by_year = {}  # year -> lines added
         self.lines_removed_by_month = {}  # month -> lines removed
@@ -578,9 +579,10 @@ class GitDataCollector(DataCollector):
                     try:
                         (stamp, author) = (int(line[:pos]), line[pos + 1:])
                         self.changes_by_date[stamp] = {'files': files, 'ins': inserted, 'del': deleted,
-                                                       'lines': total_lines}
+                                                       'lines': total_lines, 'author': author}
 
                         date = datetime.datetime.fromtimestamp(stamp)
+                        
                         yymm = date.strftime('%Y-%m')
                         self.lines_added_by_month[yymm] = self.lines_added_by_month.get(yymm, 0) + inserted
                         self.lines_removed_by_month[yymm] = self.lines_removed_by_month.get(yymm, 0) + deleted
@@ -645,12 +647,23 @@ class GitDataCollector(DataCollector):
                         self.authors[author]['commits'] = self.authors[author].get('commits', 0) + 1
                         self.authors[author]['lines_added'] = self.authors[author].get('lines_added', 0) + inserted
                         self.authors[author]['lines_removed'] = self.authors[author].get('lines_removed', 0) + deleted
+                        
+                        date = datetime.datetime.fromtimestamp(stamp)
+                        yymmdd = date.strftime('%Y-%m-%d')
+                        if yymmdd not in self.lines_added_by_day:
+                            self.lines_added_by_day[yymmdd] = {}
+                        if author not in self.lines_added_by_day[yymmdd]:
+                            self.lines_added_by_day[yymmdd][author] = {'lines_added': 0, 'lines_removed': 0, 'commits': 0}
+                        self.lines_added_by_day[yymmdd][author]['lines_added'] = self.lines_added_by_day[yymmdd][author]['lines_added'] + inserted
+                        self.lines_added_by_day[yymmdd][author]['lines_removed'] = self.lines_added_by_day[yymmdd][author]['lines_removed'] + deleted
+                        self.lines_added_by_day[yymmdd][author]['commits'] = self.lines_added_by_day[yymmdd][author]['commits'] + 1
+
                         if stamp not in self.changes_by_date_by_author:
                             self.changes_by_date_by_author[stamp] = {}
                         if author not in self.changes_by_date_by_author[stamp]:
                             self.changes_by_date_by_author[stamp][author] = {}
-                        self.changes_by_date_by_author[stamp][author]['lines_added'] = self.authors[author][
-                            'lines_added']
+                        self.changes_by_date_by_author[stamp][author]['lines_added'] = self.authors[author]['lines_added']
+                        self.changes_by_date_by_author[stamp][author]['lines_removed'] = self.authors[author]['lines_removed']
                         self.changes_by_date_by_author[stamp][author]['commits'] = self.authors[author]['commits']
                         files, inserted, deleted = 0, 0, 0
                     except ValueError:
@@ -783,10 +796,10 @@ class HTMLReportCreator(ReportCreator):
             else:
                 print('Warning: "%s" not found, so not copied (searched: %s)' % (file, basedirs))
 
-        f = open(path + "/index.html", 'w')
+        f = open(path + "/index.html", 'w', encoding='utf-8')
         format = '%Y-%m-%d %H:%M:%S'
         self.printHeader(f)
-
+        print(data.projectname)
         f.write('<h1>GitStats - %s</h1>' % data.projectname)
 
         self.printNav(f)
@@ -818,7 +831,7 @@ class HTMLReportCreator(ReportCreator):
 
         ###
         # Activity
-        f = open(path + '/activity.html', 'w')
+        f = open(path + '/activity.html', 'w', encoding='utf-8')
         self.printHeader(f)
         f.write('<h1>Activity</h1>')
         self.printNav(f)
@@ -869,7 +882,7 @@ class HTMLReportCreator(ReportCreator):
         for i in range(0, 24):
             f.write('<th>%d</th>' % i)
         f.write('</tr>\n<tr><th>Commits</th>')
-        fp = open(path + '/hour_of_day.dat', 'w')
+        fp = open(path + '/hour_of_day.dat', 'w', encoding='utf-8')
         for i in range(0, 24):
             if i in hour_of_day:
                 r = 127 + int((float(hour_of_day[i]) / data.activity_by_hour_of_day_busiest) * 128)
@@ -890,7 +903,7 @@ class HTMLReportCreator(ReportCreator):
                 f.write('<td>0.00</td>')
         f.write('</tr></table>')
         f.write('<img src="hour_of_day.png" alt="Hour of Day">')
-        fg = open(path + '/hour_of_day.dat', 'w')
+        fg = open(path + '/hour_of_day.dat', 'w', encoding='utf-8')
         for i in range(0, 24):
             if i in hour_of_day:
                 fg.write('%d %d\n' % (i + 1, hour_of_day[i]))
@@ -903,7 +916,7 @@ class HTMLReportCreator(ReportCreator):
         day_of_week = data.getActivityByDayOfWeek()
         f.write('<div class="vtable"><table>')
         f.write('<tr><th>Day</th><th>Total (%)</th></tr>')
-        fp = open(path + '/day_of_week.dat', 'w')
+        fp = open(path + '/day_of_week.dat', 'w', encoding='utf-8')
         for d in range(0, 7):
             commits = 0
             if d in day_of_week:
@@ -951,7 +964,7 @@ class HTMLReportCreator(ReportCreator):
         f.write(html_header(2, 'Month of Year'))
         f.write('<div class="vtable"><table>')
         f.write('<tr><th>Month</th><th>Commits (%)</th></tr>')
-        fp = open(path + '/month_of_year.dat', 'w')
+        fp = open(path + '/month_of_year.dat', 'w', encoding='utf-8')
         for mm in range(1, 13):
             commits = 0
             if mm in data.activity_by_month_of_year:
@@ -973,7 +986,7 @@ class HTMLReportCreator(ReportCreator):
             data.lines_removed_by_month.get(yymm, 0)))
         f.write('</table></div>')
         f.write('<img src="commits_by_year_month.png" alt="Commits by year/month">')
-        fg = open(path + '/commits_by_year_month.dat', 'w')
+        fg = open(path + '/commits_by_year_month.dat', 'w', encoding='utf-8')
         for yymm in sorted(data.commits_by_month.keys()):
             fg.write('%s %s\n' % (yymm, data.commits_by_month[yymm]))
         fg.close()
@@ -988,7 +1001,7 @@ class HTMLReportCreator(ReportCreator):
             data.lines_added_by_year.get(yy, 0), data.lines_removed_by_year.get(yy, 0)))
         f.write('</table></div>')
         f.write('<img src="commits_by_year.png" alt="Commits by Year">')
-        fg = open(path + '/commits_by_year.dat', 'w')
+        fg = open(path + '/commits_by_year.dat', 'w', encoding='utf-8')
         for yy in sorted(data.commits_by_year.keys()):
             fg.write('%d %d\n' % (yy, data.commits_by_year[yy]))
         fg.close()
@@ -1010,7 +1023,7 @@ class HTMLReportCreator(ReportCreator):
 
         ###
         # Authors
-        f = open(path + '/authors.html', 'w')
+        f = open(path + '/authors.html', 'w', encoding='utf-8')
         self.printHeader(f)
 
         f.write('<h1>Authors</h1>')
@@ -1046,8 +1059,8 @@ class HTMLReportCreator(ReportCreator):
         if len(allauthors) > conf['max_authors']:
             f.write('<p class="moreauthors">Only top %d authors shown</p>' % conf['max_authors'])
 
-        fgl = open(path + '/lines_of_code_by_author.dat', 'w')
-        fgc = open(path + '/commits_by_author.dat', 'w')
+        fgl = open(path + '/lines_of_code_by_author.dat', 'w', encoding='utf-8')
+        fgc = open(path + '/commits_by_author.dat', 'w', encoding='utf-8')
 
         lines_by_authors = {}  # cumulated added lines by
         # author. to save memory,
@@ -1077,6 +1090,21 @@ class HTMLReportCreator(ReportCreator):
             fgc.write('\n')
         fgl.close()
         fgc.close()
+
+        # Authors :: Author of Day
+        f.write(html_header(2, 'Author of Day'))
+        f.write('<table class="sortable" id="aod">')
+        f.write('<tr><th>Day</th><th>Author</th><th>Commits</th><th>+ lines</th><th>- lines</th></tr>')      
+        for stamp in sorted(data.lines_added_by_day.keys()):
+            for author in self.authors_to_plot:
+                if author in data.lines_added_by_day[stamp].keys():
+                    f.write('<tr><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td></tr>' % (
+                    stamp, 
+                    author, 
+                    data.lines_added_by_day[stamp][author]['commits'], 
+                    data.lines_added_by_day[stamp][author]['lines_added'], 
+                    data.lines_added_by_day[stamp][author]['lines_removed']))
+        f.write('</table>')
 
         # Authors :: Author of Month
         f.write(html_header(2, 'Author of Month'))
@@ -1117,7 +1145,7 @@ class HTMLReportCreator(ReportCreator):
         domains_by_commits.reverse()  # most first
         f.write('<div class="vtable"><table>')
         f.write('<tr><th>Domains</th><th>Total (%)</th></tr>')
-        fp = open(path + '/domains.dat', 'w')
+        fp = open(path + '/domains.dat', 'w', encoding='utf-8')
         n = 0
         for domain in domains_by_commits:
             if n == conf['max_domains']:
@@ -1137,7 +1165,7 @@ class HTMLReportCreator(ReportCreator):
 
         ###
         # Files
-        f = open(path + '/files.html', 'w')
+        f = open(path + '/files.html', 'w', encoding='utf-8')
         self.printHeader(f)
         f.write('<h1>Files</h1>')
         self.printNav(f)
@@ -1161,7 +1189,7 @@ class HTMLReportCreator(ReportCreator):
             files_by_date.add(
                 '%s %d' % (datetime.datetime.fromtimestamp(stamp).strftime('%Y-%m-%d'), data.files_by_stamp[stamp]))
 
-        fg = open(path + '/files_by_date.dat', 'w')
+        fg = open(path + '/files_by_date.dat', 'w', encoding='utf-8')
         for line in sorted(list(files_by_date)):
             fg.write('%s\n' % line)
         # for stamp in sorted(data.files_by_stamp.keys()):
@@ -1192,7 +1220,7 @@ class HTMLReportCreator(ReportCreator):
 
         ###
         # Lines
-        f = open(path + '/lines.html', 'w')
+        f = open(path + '/lines.html', 'w', encoding='utf-8')
         self.printHeader(f)
         f.write('<h1>Lines</h1>')
         self.printNav(f)
@@ -1204,7 +1232,7 @@ class HTMLReportCreator(ReportCreator):
         f.write(html_header(2, 'Lines of Code'))
         f.write('<img src="lines_of_code.png" alt="Lines of Code">')
 
-        fg = open(path + '/lines_of_code.dat', 'w')
+        fg = open(path + '/lines_of_code.dat', 'w', encoding='utf-8')
         for stamp in sorted(data.changes_by_date.keys()):
             fg.write('%d %d\n' % (stamp, data.changes_by_date[stamp]['lines']))
         fg.close()
@@ -1214,7 +1242,7 @@ class HTMLReportCreator(ReportCreator):
 
         ###
         # tags.html
-        f = open(path + '/tags.html', 'w')
+        f = open(path + '/tags.html', 'w', encoding='utf-8')
         self.printHeader(f)
         f.write('<h1>Tags</h1>')
         self.printNav(f)
@@ -1248,7 +1276,7 @@ class HTMLReportCreator(ReportCreator):
         print('Generating graphs...')
 
         # hour of day
-        f = open(path + '/hour_of_day.plot', 'w')
+        f = open(path + '/hour_of_day.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1264,7 +1292,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # day of week
-        f = open(path + '/day_of_week.plot', 'w')
+        f = open(path + '/day_of_week.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1280,7 +1308,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # Domains
-        f = open(path + '/domains.plot', 'w')
+        f = open(path + '/domains.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1295,7 +1323,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # Month of Year
-        f = open(path + '/month_of_year.plot', 'w')
+        f = open(path + '/month_of_year.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1311,7 +1339,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # commits_by_year_month
-        f = open(path + '/commits_by_year_month.plot', 'w')
+        f = open(path + '/commits_by_year_month.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1330,7 +1358,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # commits_by_year
-        f = open(path + '/commits_by_year.plot', 'w')
+        f = open(path + '/commits_by_year.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1346,7 +1374,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # Files by date
-        f = open(path + '/files_by_date.plot', 'w')
+        f = open(path + '/files_by_date.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1366,7 +1394,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # Lines of Code
-        f = open(path + '/lines_of_code.plot', 'w')
+        f = open(path + '/lines_of_code.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1385,7 +1413,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # Lines of Code Added per author
-        f = open(path + '/lines_of_code_by_author.plot', 'w')
+        f = open(path + '/lines_of_code_by_author.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
@@ -1414,7 +1442,7 @@ class HTMLReportCreator(ReportCreator):
         f.close()
 
         # Commits per author
-        f = open(path + '/commits_by_author.plot', 'w')
+        f = open(path + '/commits_by_author.plot', 'w', encoding='utf-8')
         f.write(GNUPLOT_COMMON)
         f.write(
             """
